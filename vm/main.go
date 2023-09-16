@@ -82,6 +82,13 @@ func (r register) read() uint16 {
 	return msb << 8 | lsb
 }
 
+const (
+	zflag uint8 = 0b0001 << iota
+	cflag
+	sflag
+	oflag
+)
+
 type memory [1<<16]byte
 
 func (mem *memory) writeb(addr uint16, val byte) {
@@ -199,9 +206,9 @@ func main() {
 			ip++
 			b := src.readb()
 			v := uint16(b)
-			if b >> 7 & 0b1 == 1 {
-				mask := ^uint16(0)
-				v = mask << 8 | v
+			if b >> 7 == 1 {
+				ones := ^uint16(0)
+				v = ones << 8 | v
 			}
 			dst.write(v)
 
@@ -230,16 +237,16 @@ func main() {
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v < a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 			dst.write(v)
 		case addb:
@@ -250,16 +257,16 @@ func main() {
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v < a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 			dst.writeb(v)
 		case sub:
@@ -270,16 +277,16 @@ func main() {
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v > a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 			dst.write(v)
 		case subb:
@@ -290,16 +297,16 @@ func main() {
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v > a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 			dst.writeb(v)
 
@@ -311,16 +318,16 @@ func main() {
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v > a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 		case cmpb:
 			src, dst := getRegs(rom.readb(ip))
@@ -330,33 +337,33 @@ func main() {
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
 			if v == 0 {
-				flags |= 0b0001
+				flags |= zflag
 			}
 			if v > a {
-				flags |= 0b0010
+				flags |= cflag
 			}
 			if vs < 0 {
-				flags |= 0b0100
+				flags |= sflag
 			}
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= 0b1000
+				flags |= oflag
 			}
 
 		case jmp:
-			br := rom.readb(ip)
+			branch := rom.readb(ip)
 			ip++
 			addr := rom.read(ip)
 			ip += 2
 
-			zf := flags & 0b0001
-			cf := flags >> 1 & 0b0001
-			sf := flags >> 2 & 0b0001
-			of := flags >> 3 & 0b0001
+			zf := flags & 0b1
+			cf := flags >> 1 & 0b1
+			sf := flags >> 2 & 0b1
+			of := flags >> 3 & 0b1
 
 			setAddr := false
 
-			switch br {
-			case 0:
+			switch branch {
+			case 0: // jmp
 				setAddr = true
 			case 1: // je
 				setAddr = zf == 1
@@ -391,7 +398,7 @@ func main() {
 			case 16: // jle
 				setAddr = ((sf ^ of) | zf) == 1
 			default:
-				panic(fmt.Sprintf("unknown jmp branch %d\n", br))
+				panic(fmt.Sprintf("unknown jmp branch %d\n", branch))
 			}
 
 			if setAddr {
