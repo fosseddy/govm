@@ -28,11 +28,11 @@ const (
 
 	jmp
 
-	//call
-	//ret
+	push
+	pop
 
-	//push
-	//pop
+	call
+	ret
 
 	syscall
 )
@@ -61,21 +61,21 @@ const (
 	rcount
 )
 
-func (r register) writeb(val byte) {
+func (r register) storeb(val byte) {
 	regs[r * 2] = val	
 }
 
-func (r register) write(val uint16) {
+func (r register) loadb() byte {
+	return regs[r * 2]
+}
+
+func (r register) store(val uint16) {
 	addr := r * 2
 	regs[addr] = byte(val)
 	regs[addr + 1] = byte(val >> 8)
 }
 
-func (r register) readb() byte {
-	return regs[r * 2]
-}
-
-func (r register) read() uint16 {
+func (r register) load() uint16 {
 	addr := r * 2
 	lsb := uint16(regs[addr])
 	msb := uint16(regs[addr + 1])
@@ -89,29 +89,65 @@ const (
 	oflag
 )
 
-type memory [1<<16]byte
+type instmem [1<<16]byte
+type mainmem [1<<16]byte
 
-func (mem *memory) writeb(addr uint16, val byte) {
+func (mem *instmem) storeb(addr uint16, val byte) {
 	mem[addr] = val
 }
 
-func (mem *memory) write(addr uint16, val uint16) {
-	mem.writeb(addr, byte(val))
-	mem.writeb(addr + 1, byte(val >> 8))
+func (mem *instmem) loadb() byte {
+	b := mem[ip]
+	ip++
+	return b
 }
 
-func (mem *memory) readb(addr uint16) byte {
-	return mem[addr]
+func (mem *instmem) store(addr uint16, val uint16) {
+	mem.storeb(addr, byte(val))
+	mem.storeb(addr + 1, byte(val >> 8))
 }
 
-func (mem *memory) read(addr uint16) uint16 {
-	lsb := uint16(mem.readb(addr))
-	msb := uint16(mem.readb(addr + 1))
+func (mem *instmem) load() uint16 {
+	lsb := uint16(mem.loadb())
+	msb := uint16(mem.loadb())
 	return msb << 8 | lsb
 }
 
-var rom memory
-var ram memory
+func (mem *mainmem) storeb(addr uint16, val byte) {
+	mem[addr] = val
+}
+
+func (mem *mainmem) loadb(addr uint16) byte {
+	return mem[addr]
+}
+
+func (mem *mainmem) store(addr uint16, val uint16) {
+	mem.storeb(addr, byte(val))
+	mem.storeb(addr + 1, byte(val >> 8))
+}
+
+func (mem *mainmem) load(addr uint16) uint16 {
+	lsb := uint16(mem.loadb(addr))
+	msb := uint16(mem.loadb(addr + 1))
+	return msb << 8 | lsb
+}
+
+func (mem *mainmem) push(val uint16) {
+	sp := rsp.load() - 2
+	mem.store(sp, val)
+	rsp.store(sp)
+}
+
+func (mem *mainmem) pop() uint16 {
+	sp := rsp.load()
+	v := mem.load(sp)
+	sp += 2
+	rsp.store(sp)
+	return v
+}
+
+var rom instmem
+var ram mainmem
 var regs [rcount*2]byte
 
 var ip uint16
@@ -125,114 +161,56 @@ func init() {
 }
 
 func main() {
-	/*
-		movi 0 r0
-		movi 0 r1
-		movi 1 r2
-		movi 5 r3
-
-	loop:
-		add r0 r1
-		add r2, r0
-		cmp r3 r0
-		jle loop
-	*/
-
-	var i uint16 = 0
-
-	rom.writeb(i, movi); i++
-	rom.writeb(i, byte(r0)); i++
-	rom.write(i, 0); i += 2
-
-	rom.writeb(i, movi); i++
-	rom.writeb(i, byte(r1)); i++
-	rom.write(i, 0); i += 2
-
-	rom.writeb(i, movi); i++
-	rom.writeb(i, byte(r2)); i++
-	rom.write(i, 1); i += 2
-
-	rom.writeb(i, movi); i++
-	rom.writeb(i, byte(r3)); i++
-	rom.write(i, 5); i += 2
-
-	lab := i
-	rom.writeb(i, add); i++
-	rom.writeb(i, byte(r0 << 4 | r1)); i++
-
-	rom.writeb(i, add); i++
-	rom.writeb(i, byte(r2 << 4 | r0)); i++
-
-	rom.writeb(i, cmp); i++
-	rom.writeb(i, byte(r3 << 4 | r0)); i++
-
-	rom.writeb(i, jmp); i++
-	rom.writeb(i, 16); i++
-	rom.write(i, lab); i += 2
-
-	rom.writeb(i, halt); i++
-
 	ip = 0
+	rsp.store(0)
 
 	halted := false
 	for !halted {
-		op := rom.readb(ip)
-		ip++
+		op := rom.loadb()
 
 		switch op {
 		case halt:
 			halted = true
 
 		case mov:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			dst.write(src.read())
+			src, dst := getRegs(rom.loadb())
+			dst.store(src.load())
 		case movb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			dst.writeb(src.readb())
+			src, dst := getRegs(rom.loadb())
+			dst.storeb(src.loadb())
 		case movi:
-			src := register(rom.readb(ip))
-			ip++
-			imm := rom.read(ip)
-			ip += 2
-			src.write(imm)
+			src := register(rom.loadb())
+			imm := rom.load()
+			src.store(imm)
 		case movze:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			dst.write(uint16(src.readb()))
+			src, dst := getRegs(rom.loadb())
+			dst.store(uint16(src.loadb()))
 		case movse:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			b := src.readb()
+			src, dst := getRegs(rom.loadb())
+			b := src.loadb()
 			v := uint16(b)
 			if b >> 7 == 1 {
 				ones := ^uint16(0)
 				v = ones << 8 | v
 			}
-			dst.write(v)
+			dst.store(v)
 
 		case st:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			ram.write(dst.read(), src.read())
+			src, dst := getRegs(rom.loadb())
+			ram.store(dst.load(), src.load())
 		case stb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			ram.writeb(dst.read(), src.readb())
+			src, dst := getRegs(rom.loadb())
+			ram.storeb(dst.load(), src.loadb())
 		case ld:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			dst.write(ram.read(src.read()))
+			src, dst := getRegs(rom.loadb())
+			dst.store(ram.load(src.load()))
 		case ldb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			dst.writeb(ram.readb(src.read()))
+			src, dst := getRegs(rom.loadb())
+			dst.storeb(ram.loadb(src.load()))
 
 		case add:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.read(), src.read()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.load(), src.load()
 			v := a + b
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
@@ -248,11 +226,10 @@ func main() {
 			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
 				flags |= oflag
 			}
-			dst.write(v)
+			dst.store(v)
 		case addb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.readb(), src.readb()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.loadb(), src.loadb()
 			v := a + b
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
@@ -268,11 +245,10 @@ func main() {
 			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
 				flags |= oflag
 			}
-			dst.writeb(v)
+			dst.storeb(v)
 		case sub:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.read(), src.read()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.load(), src.load()
 			v := a - b
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
@@ -288,11 +264,10 @@ func main() {
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
 				flags |= oflag
 			}
-			dst.write(v)
+			dst.store(v)
 		case subb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.readb(), src.readb()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.loadb(), src.loadb()
 			v := a - b
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
@@ -308,12 +283,11 @@ func main() {
 			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
 				flags |= oflag
 			}
-			dst.writeb(v)
+			dst.storeb(v)
 
 		case cmp:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.read(), src.read()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.load(), src.load()
 			v := a - b
 			as, bs, vs := int16(a), int16(b), int16(v)
 			flags = 0
@@ -330,9 +304,8 @@ func main() {
 				flags |= oflag
 			}
 		case cmpb:
-			src, dst := getRegs(rom.readb(ip))
-			ip++
-			a, b := dst.readb(), src.readb()
+			src, dst := getRegs(rom.loadb())
+			a, b := dst.loadb(), src.loadb()
 			v := a - b
 			as, bs, vs := int8(a), int8(b), int8(v)
 			flags = 0
@@ -350,10 +323,8 @@ func main() {
 			}
 
 		case jmp:
-			branch := rom.readb(ip)
-			ip++
-			addr := rom.read(ip)
-			ip += 2
+			branch := rom.loadb()
+			addr := rom.load()
 
 			zf := flags & 0b1
 			cf := flags >> 1 & 0b1
@@ -405,6 +376,20 @@ func main() {
 				ip = addr
 			}
 
+		case push:
+			src := register(rom.loadb())
+			ram.push(src.load())
+		case pop:
+			dst := register(rom.loadb())
+			dst.store(ram.pop())
+
+		case call:
+			addr := rom.load()
+			ram.push(addr)
+			ip = addr
+		case ret:
+			ip = ram.pop()
+
 		case syscall:
 			panic("not implemented")
 		default:
@@ -413,9 +398,10 @@ func main() {
 
 		fmt.Println("IP:   ", ip)
 		fmt.Printf("Flags: %04b\n", flags)
-		fmt.Println("Regs:", regs)
-		fmt.Println("ROM: ", rom[:32])
-		fmt.Println("RAM: ", ram[:32])
+		fmt.Println("Regs: ", regs)
+		fmt.Println("ROM:  ", rom[:32])
+		fmt.Println("RAM:  ", ram[:32])
+		fmt.Println("Stack:", ram[len(ram) - 32:])
 		
 		fmt.Println()
 	}
