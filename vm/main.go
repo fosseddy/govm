@@ -28,6 +28,12 @@ const (
 
 	jmp
 
+	//call
+	//ret
+
+	//push
+	//pop
+
 	syscall
 )
 
@@ -112,41 +118,57 @@ func init() {
 }
 
 func main() {
+	/*
+		movi 0 r0
+		movi 0 r1
+		movi 1 r2
+		movi 5 r3
+
+	loop:
+		add r0 r1
+		add r2, r0
+		cmp r3 r0
+		jle loop
+	*/
+
 	var i uint16 = 0
 
-	rom.writeb(i, cmp)
-	i++
-	rom.writeb(i, byte(r0 << 4 | r1))
-	i++
+	rom.writeb(i, movi); i++
+	rom.writeb(i, byte(r0)); i++
+	rom.write(i, 0); i += 2
 
-	rom.writeb(i, jmp)
-	i++
-	rom.writeb(i, 16)
-	i++
-	rom.write(i, 420)
-	i += 2
+	rom.writeb(i, movi); i++
+	rom.writeb(i, byte(r1)); i++
+	rom.write(i, 0); i += 2
 
-	rom.writeb(i, halt)
-	i++
+	rom.writeb(i, movi); i++
+	rom.writeb(i, byte(r2)); i++
+	rom.write(i, 1); i += 2
 
-	r0.write(25)
-	r1.write(26)
+	rom.writeb(i, movi); i++
+	rom.writeb(i, byte(r3)); i++
+	rom.write(i, 5); i += 2
+
+	lab := i
+	rom.writeb(i, add); i++
+	rom.writeb(i, byte(r0 << 4 | r1)); i++
+
+	rom.writeb(i, add); i++
+	rom.writeb(i, byte(r2 << 4 | r0)); i++
+
+	rom.writeb(i, cmp); i++
+	rom.writeb(i, byte(r3 << 4 | r0)); i++
+
+	rom.writeb(i, jmp); i++
+	rom.writeb(i, 16); i++
+	rom.write(i, lab); i += 2
+
+	rom.writeb(i, halt); i++
 
 	ip = 0
 
 	halted := false
 	for !halted {
-		fmt.Println("IP:   ", ip)
-		fmt.Printf("Flags: %04b\n", flags)
-		fmt.Println("Regs:", regs)
-		fmt.Println("ROM: ", rom[:32])
-		//fmt.Printf("  %08b\n", rom[:i])
-
-		fmt.Println("RAM: ", ram[:32])
-		//fmt.Printf("  %08b\n", ram[:i])
-		
-		fmt.Println()
-
 		op := rom.readb(ip)
 		ip++
 
@@ -206,6 +228,7 @@ func main() {
 			a, b := dst.read(), src.read()
 			v := a + b
 			as, bs, vs := int16(a), int16(b), int16(v)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -225,6 +248,7 @@ func main() {
 			a, b := dst.readb(), src.readb()
 			v := a + b
 			as, bs, vs := int8(a), int8(b), int8(v)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -244,8 +268,7 @@ func main() {
 			a, b := dst.read(), src.read()
 			v := a - b
 			as, bs, vs := int16(a), int16(b), int16(v)
-			println(a,b,v)
-			println(as,bs,vs)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -265,6 +288,7 @@ func main() {
 			a, b := dst.readb(), src.readb()
 			v := a - b
 			as, bs, vs := int8(a), int8(b), int8(v)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -285,6 +309,7 @@ func main() {
 			a, b := dst.read(), src.read()
 			v := a - b
 			as, bs, vs := int16(a), int16(b), int16(v)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -303,6 +328,7 @@ func main() {
 			a, b := dst.readb(), src.readb()
 			v := a - b
 			as, bs, vs := int8(a), int8(b), int8(v)
+			flags = 0
 			if v == 0 {
 				flags |= 0b0001
 			}
@@ -377,6 +403,14 @@ func main() {
 		default:
 			panic(fmt.Sprintf("unknown op %d\n", op))
 		}
+
+		fmt.Println("IP:   ", ip)
+		fmt.Printf("Flags: %04b\n", flags)
+		fmt.Println("Regs:", regs)
+		fmt.Println("ROM: ", rom[:32])
+		fmt.Println("RAM: ", ram[:32])
+		
+		fmt.Println()
 	}
 }
 
