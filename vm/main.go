@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	halt byte = iota
+	halt uint8 = iota
 
 	mov
 	movb
@@ -35,7 +35,7 @@ const (
 	syscall
 )
 
-type register int
+type register uint8
 
 const (
 	r0 register = iota
@@ -107,23 +107,26 @@ var regs [rcount*2]byte
 
 var ip uint16
 
+func init() {
+	maxrcount := 1 << 4
+	if int(rcount) > maxrcount {
+		panic(fmt.Sprintf("register count %d is more than max register count %d\n", rcount, maxrcount))
+	}
+}
+
 func main() {
 	var i uint16 = 0
 
-	rom.writeb(i, movi)
+	rom.writeb(i, ldb)
 	i++
-	rom.writeb(i, byte(r0))
-	i++
-	rom.writeb(i, 13)
-	i += 2
-
-	rom.writeb(i, movse)
-	i++
-	rom.writeb(i, byte(r0 << 4 & r1))
+	rom.writeb(i, byte(r0 << 4 | r1))
 	i++
 
 	rom.writeb(i, halt)
 	i++
+
+	r0.write(0)
+	ram.write(0, 42069)
 
 	ip = 0
 
@@ -131,11 +134,10 @@ func main() {
 	for !halted {
 
 		fmt.Println("Regs:", regs)
-		fmt.Println("ROM: ", rom[:i])
+		fmt.Println("ROM: ", rom[:32])
 		//fmt.Printf("  %08b\n", rom[:i])
 
-		//fmt.Println("RAM:")
-		//fmt.Println(" ", ram[:i])
+		fmt.Println("RAM: ", ram[:32])
 		//fmt.Printf("  %08b\n", ram[:i])
 		
 		fmt.Println()
@@ -148,14 +150,12 @@ func main() {
 			halted = true
 
 		case mov:
-			regs := rom.readb(ip)
+			src, dst := getRegs(rom.readb(ip))
 			ip++
-			src, dst := getRegs(regs)
 			dst.write(src.read())
 		case movb:
-			regs := rom.readb(ip)
+			src, dst := getRegs(rom.readb(ip))
 			ip++
-			src, dst := getRegs(regs)
 			dst.writeb(src.readb())
 		case movi:
 			src := register(rom.readb(ip))
@@ -164,30 +164,36 @@ func main() {
 			ip += 2
 			src.write(imm)
 		case movze:
-			regs := rom.readb(ip)
+			src, dst := getRegs(rom.readb(ip))
 			ip++
-			src, dst := getRegs(regs)
 			dst.write(uint16(src.readb()))
 		case movse:
-			regs := rom.readb(ip)
+			src, dst := getRegs(rom.readb(ip))
 			ip++
-			src, dst := getRegs(regs)
 			b := src.readb()
 			v := uint16(b)
-			if (b >> 7) & 0b1 == 1 {
+			if b >> 7 & 0b1 == 1 {
 				mask := ^uint16(0)
 				v = mask << 8 | v
 			}
 			dst.write(v)
 
 		case st:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			ram.write(dst.read(), src.read())
 		case stb:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			ram.writeb(dst.read(), src.readb())
 		case ld:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			dst.write(ram.read(src.read()))
 		case ldb:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			dst.writeb(ram.readb(src.read()))
 
 		case add:
 			panic("not implemented")
@@ -223,8 +229,7 @@ func main() {
 }
 
 func getRegs(b byte) (register, register) {
+	src := register(b >> 4 & 0b1111)
 	dst := register(b & 0b1111)
-	src := register((b >> 4) & 0b1111)
-
 	return src, dst
 }
