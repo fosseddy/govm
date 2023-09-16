@@ -4,38 +4,34 @@ movi   25, r0; r0    = 25
 movze  r0, r1; r1    = zero_ext(r0b)
 movse  r0, r1; r1    = sign_ext(r0b)
 
-ld[b] r0, r1; r1[b]      = mem[b][r0]
 st[b] r0, r1; mem[b][r1] = r0[b]
+ld[b] r0, r1; r1[b]      = mem[b][r0]
 
 add[b] r0, r1; r1[b] = r1[b] + r0[b]
 sub[b] r0, r1; r1[b] = r1[b] - r0[b]
-inc[b] r0;     r0[b] = r0[b] + 1
-dec[b] r0;     r0[b] = r0[b] - 1
 
-cmp[b] r0, r1; z = r1[b] - r0[b] == 0,
-               p = r1[b] - r0[b] > 0,
-               n = r1[b] - r0[b] < 0
+cmp[b] r0, r1
 
 jmp flags addr;
 
 flags:
-     zpn
+    oscz
 00000000 - 0
-00000001 - 1 n
-00000010 - 2 p
-00000011 - 3 pn
-00000100 - 4 z
-00000101 - 5 zn
-00000110 - 6 zp
-00000111 - 7 zpn
-
-jmp = 0
-je  = z
-jg  = p
-jl  = n
-jne = pn
-jge = zp
-jle = zn
+00000001 - 1 z
+00000010 - 2 c
+00000011 - 3 cz
+00000100 - 4 s
+00000101 - 5 sz
+00000110 - 6 sc
+00000111 - 7 scz
+00001000 - 8 o
+00001001 - 9 oz
+00001010 - 10 oc
+00001011 - 11 ocz
+00001100 - 12 os
+00001101 - 13 osz
+00001110 - 14 osc
+00001111 - 15 oscz
 
 msg:
 	.stringz "hello, world\n"

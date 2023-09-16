@@ -22,10 +22,6 @@ const (
 	addb
 	sub
 	subb
-	inc
-	incb
-	dec
-	decb
 
 	cmp
 	cmpb
@@ -106,6 +102,7 @@ var ram memory
 var regs [rcount*2]byte
 
 var ip uint16
+var flags uint8
 
 func init() {
 	maxrcount := 1 << 4
@@ -117,7 +114,7 @@ func init() {
 func main() {
 	var i uint16 = 0
 
-	rom.writeb(i, ldb)
+	rom.writeb(i, cmp)
 	i++
 	rom.writeb(i, byte(r0 << 4 | r1))
 	i++
@@ -125,14 +122,14 @@ func main() {
 	rom.writeb(i, halt)
 	i++
 
-	r0.write(0)
-	ram.write(0, 42069)
+	r0.write(25)
+	r1.write(20)
 
 	ip = 0
 
 	halted := false
 	for !halted {
-
+		fmt.Printf("Flags: %04b\n", flags)
 		fmt.Println("Regs:", regs)
 		fmt.Println("ROM: ", rom[:32])
 		//fmt.Printf("  %08b\n", rom[:i])
@@ -196,26 +193,120 @@ func main() {
 			dst.writeb(ram.readb(src.read()))
 
 		case add:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.read(), src.read()
+			v := a + b
+			as, bs, vs := int16(a), int16(b), int16(v)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v < a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
+				flags |= 0b1000
+			}
+			dst.write(v)
 		case addb:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.readb(), src.readb()
+			v := a + b
+			as, bs, vs := int8(a), int8(b), int8(v)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v < a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
+				flags |= 0b1000
+			}
+			dst.writeb(v)
 		case sub:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.read(), src.read()
+			v := a - b
+			as, bs, vs := int16(a), int16(b), int16(v)
+			println(a,b,v)
+			println(as,bs,vs)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v > a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
+				flags |= 0b1000
+			}
+			dst.write(v)
 		case subb:
-			panic("not implemented")
-		case inc:
-			panic("not implemented")
-		case incb:
-			panic("not implemented")
-		case dec:
-			panic("not implemented")
-		case decb:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.readb(), src.readb()
+			v := a - b
+			as, bs, vs := int8(a), int8(b), int8(v)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v > a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
+				flags |= 0b1000
+			}
+			dst.writeb(v)
 
 		case cmp:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.read(), src.read()
+			v := a - b
+			as, bs, vs := int16(a), int16(b), int16(v)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v > a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
+				flags |= 0b1000
+			}
 		case cmpb:
-			panic("not implemented")
+			src, dst := getRegs(rom.readb(ip))
+			ip++
+			a, b := dst.readb(), src.readb()
+			v := a - b
+			as, bs, vs := int8(a), int8(b), int8(v)
+			if v == 0 {
+				flags |= 0b0001
+			}
+			if v > a {
+				flags |= 0b0010
+			}
+			if vs < 0 {
+				flags |= 0b0100
+			}
+			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
+				flags |= 0b1000
+			}
 
 		case jmp:
 			panic("not implemented")
