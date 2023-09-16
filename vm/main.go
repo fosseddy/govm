@@ -119,16 +119,24 @@ func main() {
 	rom.writeb(i, byte(r0 << 4 | r1))
 	i++
 
+	rom.writeb(i, jmp)
+	i++
+	rom.writeb(i, 16)
+	i++
+	rom.write(i, 420)
+	i += 2
+
 	rom.writeb(i, halt)
 	i++
 
 	r0.write(25)
-	r1.write(20)
+	r1.write(26)
 
 	ip = 0
 
 	halted := false
 	for !halted {
+		fmt.Println("IP:   ", ip)
 		fmt.Printf("Flags: %04b\n", flags)
 		fmt.Println("Regs:", regs)
 		fmt.Println("ROM: ", rom[:32])
@@ -309,7 +317,60 @@ func main() {
 			}
 
 		case jmp:
-			panic("not implemented")
+			br := rom.readb(ip)
+			ip++
+			addr := rom.read(ip)
+			ip += 2
+
+			zf := flags & 0b0001
+			cf := flags >> 1 & 0b0001
+			sf := flags >> 2 & 0b0001
+			of := flags >> 3 & 0b0001
+
+			setAddr := false
+
+			switch br {
+			case 0:
+				setAddr = true
+			case 1: // je
+				setAddr = zf == 1
+			case 2: // jne
+				setAddr = not(zf) == 1
+			case 3: // jc
+				setAddr = cf == 1
+			case 4: // jnc
+				setAddr = not(cf) == 1
+			case 5: // js
+				setAddr = sf == 1
+			case 6: // jns
+				setAddr = not(sf) == 1
+			case 7: // jo
+				setAddr = of == 1
+			case 8: // jno
+				setAddr = not(of) == 1
+			case 9: // ja
+				setAddr = (not(cf) & not(zf)) == 1
+			case 10: // jae
+				setAddr = not(cf) == 1
+			case 11: // jb
+				setAddr = cf == 1
+			case 12: // jbe
+				setAddr = (cf | zf) == 1
+			case 13: // jg
+				setAddr = (not(sf ^ of) & not(zf)) == 1
+			case 14: // jge
+				setAddr = not(sf ^ of) == 1
+			case 15: // jl
+				setAddr = (sf ^ of) == 1
+			case 16: // jle
+				setAddr = ((sf ^ of) | zf) == 1
+			default:
+				panic(fmt.Sprintf("unknown jmp branch %d\n", br))
+			}
+
+			if setAddr {
+				ip = addr
+			}
 
 		case syscall:
 			panic("not implemented")
@@ -323,4 +384,12 @@ func getRegs(b byte) (register, register) {
 	src := register(b >> 4 & 0b1111)
 	dst := register(b & 0b1111)
 	return src, dst
+}
+
+func not(b uint8) uint8 {
+	if b == 1 {
+		return 0
+	}
+
+	return 1
 }
