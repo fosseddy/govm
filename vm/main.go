@@ -271,38 +271,34 @@ func main() {
 			switch branch {
 			case 0: // jmp
 				setAddr = true
-			case 1: // je
+			case 1: // jz, je
 				setAddr = zf == 1
-			case 2: // jne
-				setAddr = not(zf) == 1
-			case 3: // jc
+			case 2: // jnz, jne
+				setAddr = zf == 0
+			case 3: // jc, jb
 				setAddr = cf == 1
-			case 4: // jnc
-				setAddr = not(cf) == 1
+			case 4: // jnc, jae
+				setAddr = cf == 0
 			case 5: // js
 				setAddr = sf == 1
 			case 6: // jns
-				setAddr = not(sf) == 1
+				setAddr = sf == 0
 			case 7: // jo
 				setAddr = of == 1
 			case 8: // jno
-				setAddr = not(of) == 1
-			case 9: // ja
-				setAddr = (not(cf) & not(zf)) == 1
-			case 10: // jae
-				setAddr = not(cf) == 1
-			case 11: // jb
-				setAddr = cf == 1
-			case 12: // jbe
-				setAddr = (cf | zf) == 1
-			case 13: // jg
-				setAddr = (not(sf ^ of) & not(zf)) == 1
-			case 14: // jge
-				setAddr = not(sf ^ of) == 1
-			case 15: // jl
-				setAddr = (sf ^ of) == 1
-			case 16: // jle
-				setAddr = ((sf ^ of) | zf) == 1
+				setAddr = of == 0
+			case 9: // jbe
+				setAddr = cf | zf == 1
+			case 10: // ja
+				setAddr = cf | zf == 0
+			case 11: // jl
+				setAddr = sf ^ of == 1
+			case 12: // jge
+				setAddr = sf ^ of == 0
+			case 13: // jle
+				setAddr = (sf ^ of) | zf == 1
+			case 14: // jg
+				setAddr = (sf ^ of) | zf == 0
 			default:
 				panic(fmt.Sprintf("unknown jmp branch %d\n", branch))
 			}
@@ -346,13 +342,6 @@ func getRegs(b byte) (register, register) {
 	src := register(b >> 4 & 0b1111)
 	dst := register(b & 0b1111)
 	return src, dst
-}
-
-func not(b uint8) uint8 {
-	if b == 1 {
-		return 0
-	}
-	return 1
 }
 
 func setFlags(a, b uint, size int) {
