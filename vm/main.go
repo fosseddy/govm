@@ -82,18 +82,24 @@ func (r register) load() uint16 {
 	return msb << 8 | lsb
 }
 
+type condflag uint8
+
 const (
-	zflag uint8 = 0b0001 << iota
+	zflag condflag = 0b0001 << iota
 	cflag
 	sflag
 	oflag
 )
 
-type instmem [1<<16]byte
-type mainmem [1<<16]byte
+func (f condflag) set() {
+	flags |= uint8(f)
+}
 
-func (mem *instmem) storeb(addr uint16, val byte) {
-	mem[addr] = val
+type instmem [1<<16]byte
+
+func (mem *instmem) storeb(val byte) {
+	mem[ip] = val
+	ip++
 }
 
 func (mem *instmem) loadb() byte {
@@ -102,9 +108,9 @@ func (mem *instmem) loadb() byte {
 	return b
 }
 
-func (mem *instmem) store(addr uint16, val uint16) {
-	mem.storeb(addr, byte(val))
-	mem.storeb(addr + 1, byte(val >> 8))
+func (mem *instmem) store(val uint16) {
+	mem.storeb(byte(val))
+	mem.storeb(byte(val >> 8))
 }
 
 func (mem *instmem) load() uint16 {
@@ -112,6 +118,8 @@ func (mem *instmem) load() uint16 {
 	msb := uint16(mem.loadb())
 	return msb << 8 | lsb
 }
+
+type mainmem [1<<16]byte
 
 func (mem *mainmem) storeb(addr uint16, val byte) {
 	mem[addr] = val
@@ -161,6 +169,19 @@ func init() {
 }
 
 func main() {
+	rom.storeb(movi)
+	rom.storeb(byte(r0))
+	rom.store(127)
+
+	rom.storeb(movi)
+	rom.storeb(byte(r1))
+	rom.store(1)
+
+	rom.storeb(addb)
+	rom.storeb(byte(r1 << 4 | r0))
+
+	rom.storeb(halt)
+
 	ip = 0
 	rsp.store(0)
 
@@ -211,116 +232,30 @@ func main() {
 		case add:
 			src, dst := getRegs(rom.loadb())
 			a, b := dst.load(), src.load()
-			v := a + b
-			as, bs, vs := int16(a), int16(b), int16(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v < a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
-				flags |= oflag
-			}
-			dst.store(v)
+			dst.store(a + b)
+			setFlags(uint(a), uint(b), 16)
 		case addb:
 			src, dst := getRegs(rom.loadb())
 			a, b := dst.loadb(), src.loadb()
-			v := a + b
-			as, bs, vs := int8(a), int8(b), int8(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v < a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs > 0 && vs <= 0) || (as < 0 && bs < 0 && vs >= 0) {
-				flags |= oflag
-			}
-			dst.storeb(v)
+			dst.storeb(a + b)
+			setFlags(uint(a), uint(b), 8)
 		case sub:
 			src, dst := getRegs(rom.loadb())
 			a, b := dst.load(), src.load()
-			v := a - b
-			as, bs, vs := int16(a), int16(b), int16(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v > a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= oflag
-			}
-			dst.store(v)
+			dst.store(a - b)
+			setFlags(uint(a), ^uint(b) + 1, 16)
 		case subb:
 			src, dst := getRegs(rom.loadb())
 			a, b := dst.loadb(), src.loadb()
-			v := a - b
-			as, bs, vs := int8(a), int8(b), int8(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v > a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= oflag
-			}
-			dst.storeb(v)
+			dst.storeb(a - b)
+			setFlags(uint(a), ^uint(b) + 1, 8)
 
 		case cmp:
 			src, dst := getRegs(rom.loadb())
-			a, b := dst.load(), src.load()
-			v := a - b
-			as, bs, vs := int16(a), int16(b), int16(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v > a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= oflag
-			}
+			setFlags(uint(dst.load()), ^uint(src.load()) + 1, 16)
 		case cmpb:
 			src, dst := getRegs(rom.loadb())
-			a, b := dst.loadb(), src.loadb()
-			v := a - b
-			as, bs, vs := int8(a), int8(b), int8(v)
-			flags = 0
-			if v == 0 {
-				flags |= zflag
-			}
-			if v > a {
-				flags |= cflag
-			}
-			if vs < 0 {
-				flags |= sflag
-			}
-			if (as > 0 && bs < 0 && vs <= 0) || (as < 0 && bs > 0 && vs >= 0) {
-				flags |= oflag
-			}
+			setFlags(uint(dst.loadb()), ^uint(src.loadb()) + 1, 8)
 
 		case jmp:
 			branch := rom.loadb()
@@ -397,7 +332,7 @@ func main() {
 		}
 
 		fmt.Println("IP:   ", ip)
-		fmt.Printf("Flags: %04b\n", flags)
+		fmt.Printf("oscz:  %04b\n", flags)
 		fmt.Println("Regs: ", regs)
 		fmt.Println("ROM:  ", rom[:32])
 		fmt.Println("RAM:  ", ram[:32])
@@ -417,6 +352,28 @@ func not(b uint8) uint8 {
 	if b == 1 {
 		return 0
 	}
-
 	return 1
+}
+
+func setFlags(a, b uint, size int) {
+	v := a + b
+	if v == 0 {
+		zflag.set()
+	}
+
+	carry := v >> size & 0b1
+	if carry == 1 {
+		cflag.set()
+	}
+
+	sign := v >> (size - 1) & 0b1
+	if sign == 1 {
+		sflag.set()
+	}
+	
+	as := a >> (size - 1) & 0b1
+	bs := b >> (size - 1) & 0b1
+	if (as == 0 && bs == 0 && sign == 1) || (as == 1 && bs == 1 && sign == 0) {
+		oflag.set()
+	}
 }
