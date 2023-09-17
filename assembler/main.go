@@ -64,5 +64,11 @@ func main() {
 	s := scanner.New(os.Args[1])
 	toks := s.Parse()
 
-	fmt.Println(toks)
+	for _, t := range toks {
+		fmt.Print("{")
+		fmt.Print(t.Kind, " ")
+		fmt.Print(t.Lex, " ")
+		fmt.Print(t.Value)
+		fmt.Println("}")
+	}
 }

@@ -71,11 +71,14 @@ func (s *Scanner) makeToken(kind token.Kind) token.Token {
 		Pos: token.Position{s.file, s.line},
 	}
 
-	if tok.Kind == token.Num {
+	switch tok.Kind {
+	case token.Char:
+		tok.Value = int(tok.Lex[1])
+		tok.Kind = token.Num
+	case token.Num:
 		val, err := strconv.Atoi(tok.Lex)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			s.reportError("%s\n", err)
 		}
 		tok.Value = val
 	}
@@ -85,6 +88,12 @@ func (s *Scanner) makeToken(kind token.Kind) token.Token {
 
 func (s *Scanner) lexeme() string {
 	return string(s.src[s.start:s.cur])
+}
+
+func (s *Scanner) reportError(fstr string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "%s:%d: ", s.file, s.line)
+	fmt.Fprintf(os.Stderr, fstr, args...)
+	os.Exit(1)
 }
 
 func (s *Scanner) parseToken() token.Token {
@@ -110,6 +119,41 @@ scanAgain:
 			goto scanAgain
 		}
 		goto scanError
+
+	case '\'':
+		s.advance()
+		for s.ch != '\'' && s.ch != '\n' && s.hasSrc() {
+			s.advance()
+		}
+
+		if s.ch == '\n' {
+			s.reportError("unterminated character literal\n")
+		}
+
+		ch := s.src[s.start + 1:s.cur]
+		if len(ch) > 1 {
+			s.reportError("expected single character %q\n", ch)
+		}
+
+		s.advance()
+		return s.makeToken(token.Char)
+	case '"':
+		s.advance()
+		for s.ch != '"' && s.ch != '\n' && s.hasSrc() {
+			s.advance()
+		}
+
+		if s.ch == '\n' {
+			s.reportError("unterminated string literal\n")
+		}
+
+		str := s.src[s.start + 1:s.cur]
+		if len(str) == 0 {
+			s.reportError("empty string literal\n")
+		}
+
+		s.advance()
+		return s.makeToken(token.Str)
 	
 	case ':':
 		s.advance()
@@ -140,8 +184,7 @@ scanAgain:
 	}
 
 scanError:
-	fmt.Fprintf(os.Stderr, "%s:%d: unexpected character %c\n", s.file, s.line, s.ch)
-	os.Exit(1)
+	s.reportError("unexpected character %c\n", s.ch)
 	panic("i just wanna exit :(")
 }
 
