@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"encoding/binary"
+	_syscall "syscall"
 )
 
 const (
@@ -13,10 +16,10 @@ const (
 	movze
 	movse
 
-	st
-	stb
-	ld
-	ldb
+	wr
+	wrb
+	rd
+	rdb
 
 	add
 	addb
@@ -61,21 +64,21 @@ const (
 	rcount
 )
 
-func (r register) storeb(val byte) {
+func (r register) writeb(val byte) {
 	regs[r * 2] = val	
 }
 
-func (r register) loadb() byte {
+func (r register) readb() byte {
 	return regs[r * 2]
 }
 
-func (r register) store(val uint16) {
+func (r register) write(val uint16) {
 	addr := r * 2
 	regs[addr] = byte(val)
 	regs[addr + 1] = byte(val >> 8)
 }
 
-func (r register) load() uint16 {
+func (r register) read() uint16 {
 	addr := r * 2
 	lsb := uint16(regs[addr])
 	msb := uint16(regs[addr + 1])
@@ -95,66 +98,41 @@ func (f condflag) set() {
 	flags |= uint8(f)
 }
 
-type instmem [1<<16]byte
-
-func (mem *instmem) storeb(val byte) {
-	mem[ip] = val
-	ip++
-}
-
-func (mem *instmem) loadb() byte {
-	b := mem[ip]
-	ip++
-	return b
-}
-
-func (mem *instmem) store(val uint16) {
-	mem.storeb(byte(val))
-	mem.storeb(byte(val >> 8))
-}
-
-func (mem *instmem) load() uint16 {
-	lsb := uint16(mem.loadb())
-	msb := uint16(mem.loadb())
-	return msb << 8 | lsb
-}
-
 type mainmem [1<<16]byte
 
-func (mem *mainmem) storeb(addr uint16, val byte) {
+func (mem *mainmem) writeb(addr uint16, val byte) {
 	mem[addr] = val
 }
 
-func (mem *mainmem) loadb(addr uint16) byte {
+func (mem *mainmem) readb(addr uint16) byte {
 	return mem[addr]
 }
 
-func (mem *mainmem) store(addr uint16, val uint16) {
-	mem.storeb(addr, byte(val))
-	mem.storeb(addr + 1, byte(val >> 8))
+func (mem *mainmem) write(addr uint16, val uint16) {
+	mem.writeb(addr, byte(val))
+	mem.writeb(addr + 1, byte(val >> 8))
 }
 
-func (mem *mainmem) load(addr uint16) uint16 {
-	lsb := uint16(mem.loadb(addr))
-	msb := uint16(mem.loadb(addr + 1))
+func (mem *mainmem) read(addr uint16) uint16 {
+	lsb := uint16(mem.readb(addr))
+	msb := uint16(mem.readb(addr + 1))
 	return msb << 8 | lsb
 }
 
 func (mem *mainmem) push(val uint16) {
-	sp := rsp.load() - 2
-	mem.store(sp, val)
-	rsp.store(sp)
+	sp := rsp.read() - 2
+	mem.write(sp, val)
+	rsp.write(sp)
 }
 
 func (mem *mainmem) pop() uint16 {
-	sp := rsp.load()
-	v := mem.load(sp)
+	sp := rsp.read()
+	v := mem.read(sp)
 	sp += 2
-	rsp.store(sp)
+	rsp.write(sp)
 	return v
 }
 
-var rom instmem
 var ram mainmem
 var regs [rcount*2]byte
 
@@ -169,97 +147,113 @@ func init() {
 }
 
 func main() {
-	rom.storeb(movi)
-	rom.storeb(byte(r0))
-	rom.store(127)
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "Provide file to execute")
+		os.Exit(1)
+	}
 
-	rom.storeb(movi)
-	rom.storeb(byte(r1))
-	rom.store(1)
-
-	rom.storeb(addb)
-	rom.storeb(byte(r1 << 4 | r0))
-
-	rom.storeb(halt)
-
-	ip = 0
-	rsp.store(0)
+	src, _ := os.ReadFile(os.Args[1])
+	f, _ := os.Open(os.Args[1])
+	binary.Read(f, binary.LittleEndian, &ip)
+	println(ip, src)
+	for i := 2; i < len(src); i++ {
+		ram[i-2] = src[i]
+	}
 
 	halted := false
 	for !halted {
-		op := rom.loadb()
+		op := ram.readb(ip)
+		ip++
 
 		switch op {
 		case halt:
 			halted = true
 
 		case mov:
-			src, dst := getRegs(rom.loadb())
-			dst.store(src.load())
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			dst.write(src.read())
 		case movb:
-			src, dst := getRegs(rom.loadb())
-			dst.storeb(src.loadb())
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			dst.writeb(src.readb())
 		case movi:
-			src := register(rom.loadb())
-			imm := rom.load()
-			src.store(imm)
+			src := register(ram.readb(ip))
+			ip++
+			imm := ram.read(ip)
+			ip += 2
+			src.write(imm)
 		case movze:
-			src, dst := getRegs(rom.loadb())
-			dst.store(uint16(src.loadb()))
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			dst.write(uint16(src.readb()))
 		case movse:
-			src, dst := getRegs(rom.loadb())
-			b := src.loadb()
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			b := src.readb()
 			v := uint16(b)
 			if b >> 7 == 1 {
 				ones := ^uint16(0)
 				v = ones << 8 | v
 			}
-			dst.store(v)
+			dst.write(v)
 
-		case st:
-			src, dst := getRegs(rom.loadb())
-			ram.store(dst.load(), src.load())
-		case stb:
-			src, dst := getRegs(rom.loadb())
-			ram.storeb(dst.load(), src.loadb())
-		case ld:
-			src, dst := getRegs(rom.loadb())
-			dst.store(ram.load(src.load()))
-		case ldb:
-			src, dst := getRegs(rom.loadb())
-			dst.storeb(ram.loadb(src.load()))
+		case wr:
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			ram.write(dst.read(), src.read())
+		case wrb:
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			ram.writeb(dst.read(), src.readb())
+		case rd:
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			dst.write(ram.read(src.read()))
+		case rdb:
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			dst.writeb(ram.readb(src.read()))
 
 		case add:
-			src, dst := getRegs(rom.loadb())
-			a, b := dst.load(), src.load()
-			dst.store(a + b)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			a, b := dst.read(), src.read()
+			dst.write(a + b)
 			setFlags(uint(a), uint(b), 16)
 		case addb:
-			src, dst := getRegs(rom.loadb())
-			a, b := dst.loadb(), src.loadb()
-			dst.storeb(a + b)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			a, b := dst.readb(), src.readb()
+			dst.writeb(a + b)
 			setFlags(uint(a), uint(b), 8)
 		case sub:
-			src, dst := getRegs(rom.loadb())
-			a, b := dst.load(), src.load()
-			dst.store(a - b)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			a, b := dst.read(), src.read()
+			dst.write(a - b)
 			setFlags(uint(a), ^uint(b) + 1, 16)
 		case subb:
-			src, dst := getRegs(rom.loadb())
-			a, b := dst.loadb(), src.loadb()
-			dst.storeb(a - b)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			a, b := dst.readb(), src.readb()
+			dst.writeb(a - b)
 			setFlags(uint(a), ^uint(b) + 1, 8)
 
 		case cmp:
-			src, dst := getRegs(rom.loadb())
-			setFlags(uint(dst.load()), ^uint(src.load()) + 1, 16)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			setFlags(uint(dst.read()), ^uint(src.read()) + 1, 16)
 		case cmpb:
-			src, dst := getRegs(rom.loadb())
-			setFlags(uint(dst.loadb()), ^uint(src.loadb()) + 1, 8)
+			src, dst := getRegs(ram.readb(ip))
+			ip++
+			setFlags(uint(dst.readb()), ^uint(src.readb()) + 1, 8)
 
 		case jmp:
-			branch := rom.loadb()
-			addr := rom.load()
+			branch := ram.readb(ip)
+			ip++
+			addr := ram.read(ip)
+			ip += 2
 
 			zf := flags & 0b1
 			cf := flags >> 1 & 0b1
@@ -308,21 +302,33 @@ func main() {
 			}
 
 		case push:
-			src := register(rom.loadb())
-			ram.push(src.load())
+			src := register(ram.readb(ip))
+			ip++
+			ram.push(src.read())
 		case pop:
-			dst := register(rom.loadb())
-			dst.store(ram.pop())
+			dst := register(ram.readb(ip))
+			ip++
+			dst.write(ram.pop())
 
 		case call:
-			addr := rom.load()
+			addr := ram.read(ip)
+			ip++
 			ram.push(addr)
 			ip = addr
 		case ret:
 			ip = ram.pop()
 
 		case syscall:
-			panic("not implemented")
+			k := r0.read()
+			switch k {
+			case 1:
+				fd := r1.read()
+				ptr := r2.read()
+				len := r3.read()
+				_syscall.Write(int(fd), ram[ptr:len])
+			default:
+				panic("syscall kind is not implemented")
+			}
 		default:
 			panic(fmt.Sprintf("unknown op %d\n", op))
 		}
@@ -330,7 +336,6 @@ func main() {
 		fmt.Println("IP:   ", ip)
 		fmt.Printf("oscz:  %04b\n", flags)
 		fmt.Println("Regs: ", regs)
-		fmt.Println("ROM:  ", rom[:32])
 		fmt.Println("RAM:  ", ram[:32])
 		fmt.Println("Stack:", ram[len(ram) - 32:])
 		

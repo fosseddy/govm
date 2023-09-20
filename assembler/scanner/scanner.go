@@ -1,14 +1,13 @@
 package scanner
 
 import (
-	"log"
 	"fmt"
 	"os"
 	"strconv"
 	"asm/token"
 )
 
-type Scanner struct {
+type scanner struct {
 	file string
 	src []byte
 	line int
@@ -17,27 +16,30 @@ type Scanner struct {
 	ch byte
 }
 
-func New(file string) *Scanner {
+func Scan(file string) []token.Token {
 	src, err := os.ReadFile(file)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
-	s := &Scanner{file: file, src: src, line: 1}
+	s := scanner{
+		file: file,
+		src: src,
+		line: 1,
+	}
+
+
 	if len(src) > 0 {
-		s.ch = s.src[0]
+		s.ch = src[0]
 	}
 
-	return s
-}
-
-func (s *Scanner) Parse() []token.Token {
-	toks := make([]token.Token, 0, 512)
+	toks := make([]token.Token, 0, 256)
 
 	for {
-		t := s.parseToken()
-		toks = append(toks, t)
-		if t.Kind == token.Eof {
+		tok := s.scanToken()
+		toks = append(toks, tok)
+		if tok.Kind == token.EOF {
 			break
 		}
 	}
@@ -45,11 +47,11 @@ func (s *Scanner) Parse() []token.Token {
 	return toks
 }
 
-func (s *Scanner) hasSrc() bool {
+func (s *scanner) hasSrc() bool {
 	return s.cur < len(s.src)
 }
 
-func (s *Scanner) advance() {
+func (s *scanner) advance() {
 	s.cur++
 
 	if !s.hasSrc() {
@@ -59,12 +61,12 @@ func (s *Scanner) advance() {
 	s.ch = s.src[s.cur]
 }
 
-func (s *Scanner) next(ch byte) bool {
+func (s *scanner) next(ch byte) bool {
 	next := s.cur + 1
 	return next < len(s.src) && s.src[next] == ch
 }
 
-func (s *Scanner) makeToken(kind token.Kind) token.Token {
+func (s *scanner) makeToken(kind token.Kind) token.Token {
 	tok := token.Token{
 		Kind: kind,
 		Lex: s.lexeme(),
@@ -74,10 +76,10 @@ func (s *Scanner) makeToken(kind token.Kind) token.Token {
 	switch tok.Kind {
 	case token.Char:
 		tok.Value = int(tok.Lex[1])
-		tok.Kind = token.Num
 	case token.Num:
 		val, err := strconv.Atoi(tok.Lex)
 		if err != nil {
+			// TODO(art): better error message
 			s.reportError("%s\n", err)
 		}
 		tok.Value = val
@@ -86,29 +88,26 @@ func (s *Scanner) makeToken(kind token.Kind) token.Token {
 	return tok
 }
 
-func (s *Scanner) lexeme() string {
+func (s *scanner) lexeme() string {
 	return string(s.src[s.start:s.cur])
 }
 
-func (s *Scanner) reportError(fstr string, args ...interface{}) {
+func (s *scanner) reportError(fstr string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "%s:%d: ", s.file, s.line)
 	fmt.Fprintf(os.Stderr, fstr, args...)
 	os.Exit(1)
 }
 
-func (s *Scanner) parseToken() token.Token {
+func (s *scanner) scanToken() token.Token {
 scanAgain:
 	s.start = s.cur
 
 	if !s.hasSrc() {
-		return s.makeToken(token.Eof)
+		return s.makeToken(token.EOF)
 	}
 
 	switch s.ch {
-	case ' ', '\t', '\n', '\r':
-		if s.ch == '\n' {
-			s.line++
-		}
+	case ' ', '\t', '\r':
 		s.advance()
 		goto scanAgain
 	case '/':
@@ -119,6 +118,12 @@ scanAgain:
 			goto scanAgain
 		}
 		goto scanError
+
+	case '\n':
+		s.advance()
+		t := s.makeToken(token.LF)
+		s.line++
+		return t
 
 	case '\'':
 		s.advance()
@@ -132,7 +137,7 @@ scanAgain:
 
 		ch := s.src[s.start + 1:s.cur]
 		if len(ch) > 1 {
-			s.reportError("expected single character %q\n", ch)
+			s.reportError("expected single character\n")
 		}
 
 		s.advance()
@@ -183,9 +188,11 @@ scanAgain:
 		}
 	}
 
+	goto scanAgain
+
 scanError:
 	s.reportError("unexpected character %c\n", s.ch)
-	panic("i just wanna exit :(")
+	panic("reportError calls os.Exit(1)")
 }
 
 func isLetter(ch byte) bool {
