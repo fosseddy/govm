@@ -125,7 +125,7 @@ func main() {
 		}
 	}
 
-	f, _ := os.Create("out.vm")
+	f, _ := os.Create("out.o")
 
 	binary.Write(f, binary.LittleEndian, uint16(len(st)))
 	binary.Write(f, binary.LittleEndian, uint16(len(rels)))
