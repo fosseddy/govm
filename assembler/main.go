@@ -11,7 +11,8 @@ directive = "." ("global" symbol
 				|"skip"   number)
 
 mnemonic = "halt"
-		 | "mov" "b"? (reg|number|char|symbol) "," reg
+		 | "mov" "b"? reg "," reg
+		 | "movi" (number|char|symbol) "," reg
 	     | "movze" reg "," reg
 	     | "movse" reg "," reg
 	     | "wr"  "b"? reg "," reg
@@ -109,7 +110,7 @@ func main() {
 				binary.Write(code, binary.LittleEndian, v)
 			}
 		case parser.Instruction:
-			v := translateInstruction(&s, st)
+			v := encodeInstruction(&s, st)
 			binary.Write(code, binary.LittleEndian, v)
 		}
 	}
@@ -119,17 +120,16 @@ func main() {
 	f.Write(code.Bytes())
 }
 
-func getOpcode(inst *parser.Instruction) uint8 {
-	switch inst.Kind {
+func encodeOp(kind token.Kind) uint8 {
+	switch kind {
 	case token.Halt:
 		return 0
 	case token.Mov:
-		if inst.Args[0].Kind.IsRegister() {
-			return 1
-		}
-		return 3
+		return 1
 	case token.Movb:
 		return 2
+	case token.Movi:
+		return 3
 	case token.Movze:
 		return 4
 	case token.Movse:
@@ -172,7 +172,7 @@ func getOpcode(inst *parser.Instruction) uint8 {
 	panic("unreachable")
 }
 
-func getReg(reg token.Kind) uint8 {
+func encodeReg(reg token.Kind) uint8 {
 	switch reg {
 	case token.R0:
 		return 0
@@ -211,7 +211,7 @@ func getReg(reg token.Kind) uint8 {
 	panic("unreachable " + reg.String())
 }
 
-func getBranch(br token.Kind) uint8 {
+func encodeBranch(br token.Kind) uint8 {
 	switch br {
 	case token.Jmp:
 		return 0
@@ -248,43 +248,36 @@ func getBranch(br token.Kind) uint8 {
 	panic("unreachable")
 }
 
-func translateInstruction(inst *parser.Instruction, st symtab) []byte {
+func encodeInstruction(inst *parser.Instruction, st symtab) []byte {
 	buf := new(bytes.Buffer)
 
-	op := getOpcode(inst)
-	binary.Write(buf, binary.LittleEndian, op)
+	binary.Write(buf, binary.LittleEndian, encodeOp(inst.Kind))
 
 	switch inst.Kind {
-	case token.Mov:
-		if op == 3 {
-			binary.Write(buf, binary.LittleEndian, getReg(inst.Args[1].Kind))
-			if inst.Args[0].Kind == token.Sym {
-				v := uint16(st[inst.Args[0].Lex].addr)
-				binary.Write(buf, binary.LittleEndian, v)
-			} else {
-				v := uint16(inst.Args[0].Value)
-				binary.Write(buf, binary.LittleEndian, v)
-			}
-		} else {
-			binary.Write(buf, binary.LittleEndian, getReg(inst.Args[0].Kind) << 4 | getReg(inst.Args[1].Kind))
-		}
+	case token.Mov, token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add,
+			token.Addb, token.Sub, token.Subb, token.Cmp, token.Cmpb:
+		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[0].Kind) << 4 | encodeReg(inst.Args[1].Kind))
 
-	case token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
-			token.Sub, token.Subb, token.Cmp, token.Cmpb:
-		binary.Write(buf, binary.LittleEndian, getReg(inst.Args[0].Kind) << 4 | getReg(inst.Args[1].Kind))
+	case token.Movi:
+		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[1].Kind))
+		if inst.Args[0].Kind == token.Sym {
+			binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
+		} else {
+			binary.Write(buf, binary.LittleEndian, uint16(inst.Args[0].Value))
+		}
 
 	case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae, token.Js,
 			token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle, token.Jg:
-		binary.Write(buf, binary.LittleEndian, getBranch(inst.Kind))
+		binary.Write(buf, binary.LittleEndian, encodeBranch(inst.Kind))
 		binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
 
 	case token.Push, token.Pop:
-		binary.Write(buf, binary.LittleEndian, getReg(inst.Args[0].Kind))
+		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[0].Kind))
 
 	case token.Call:
 		binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
 
-	case token.Syscall, token.Ret, token.Halt:
+	case token.Syscall, token.Ret, token.Halt: // art: 0 args
 	default:
 		panic("unreachable " + inst.Kind.String())
 	}
@@ -348,24 +341,18 @@ func (st symtab) populate(stmts []parser.Stmt) {
 			case token.Halt, token.Ret, token.Syscall:
 				addr += 1
 
-			case token.Mov:
-				sz := 4
-				if s.Args[0].Kind.IsRegister() {
-					sz = 2
-				}
-				addr += sz
-
-			case token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
-					token.Sub, token.Subb, token.Cmp, token.Cmpb, token.Push, token.Pop:
+			case token.Mov, token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add,
+					token.Addb, token.Sub, token.Subb, token.Cmp, token.Cmpb, token.Push, token.Pop:
 				addr += 2
-
-			case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae,
-					token.Js, token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle,
-					token.Jg:
-				addr += 4
 
 			case token.Call:
 				addr += 3
+
+			case token.Movi, token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc,
+					token.Jae, token.Js, token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge,
+					token.Jle, token.Jg:
+				addr += 4
+
 			default:
 				panic("unreachable")
 			}

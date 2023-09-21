@@ -129,28 +129,28 @@ func (p *parser) parseInstruction() Stmt {
 	args := make([]*token.Token, 0, 8)
 
 	switch op.Kind {
-	case token.Mov:
-		arg1 := p.advance()
-		if !arg1.Kind.IsRegister() && arg1.Kind != token.Sym && arg1.Kind != token.Num && arg1.Kind != token.Char {
-			fmt.Fprintf(os.Stderr, "%s: expected register, symbol, number or character but got %s\n", op.Pos, arg1.Kind)
-			os.Exit(1)
-		}
-		p.consume(token.Comma)
-		arg2 := p.consumeReg()
-		args = append(args, arg1, arg2)
-	case token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
+	case token.Mov, token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
 			token.Sub, token.Subb, token.Cmp, token.Cmpb:
 		arg1 := p.consumeReg()
 		p.consume(token.Comma)
 		arg2 := p.consumeReg()
 		args = append(args, arg1, arg2)
+
+	case token.Movi:
+		arg1 := p.consume(token.Num, token.Char, token.Sym)
+		p.consume(token.Comma)
+		arg2 := p.consumeReg()
+		args = append(args, arg1, arg2)
+
 	case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae, token.Js,
 			token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle, token.Jg, token.Call:
 		arg1 := p.consume(token.Sym)
 		args = append(args, arg1)
+
 	case token.Push, token.Pop:
 		arg1 := p.consumeReg()
 		args = append(args, arg1)
+
 	case token.Halt, token.Ret, token.Syscall: // art: 0 args
 	default:
 		fmt.Fprintf(os.Stderr, "%s: expected instruction but got %s\n", op.Pos, op.Kind)

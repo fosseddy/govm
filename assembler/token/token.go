@@ -26,6 +26,7 @@ const (
 	Halt
 	Mov
 	Movb
+	Movi
 	Movze
 	Movse
 	Wr
@@ -63,7 +64,7 @@ const (
 	Ret
 	Syscall
 
-	tok_reg_begin
+	tokRegBegin
 	R0
 	R1
 	R2
@@ -80,11 +81,11 @@ const (
 	R13
 	Rsp
 	Rbp
-	tok_reg_end
+	tokRegEnd
 )
 
 func (k Kind) IsRegister() bool {
-	return k > tok_reg_begin && k < tok_reg_end
+	return k > tokRegBegin && k < tokRegEnd
 }
 
 func (k Kind) String() string {
@@ -110,18 +111,8 @@ func (k Kind) String() string {
 	case Dot:
 		return "."
 
-	case Extern:
-		return "extern"
-	case Global:
-		return "global"
-	case Byte:
-		return "byte"
-	case Word:
-		return "word"
-	case Ascii:
-		return "ascii"
-	case Skip:
-		return "skip"
+	case Extern, Global, Byte, Word, Ascii, Skip:
+		return "directive"
 
 	case Halt:
 		return "halt"
@@ -129,6 +120,8 @@ func (k Kind) String() string {
 		return "mov"
 	case Movb:
 		return "movb"
+	case Movi:
+		return "movi"
 	case Movze:
 		return "movze"
 	case Movse:
@@ -219,7 +212,7 @@ func (pos Position) String() string {
 }
 
 type Token struct {
-	Kind Kind
+	Kind
 	Lex string
 	Value int
 	Pos Position
@@ -236,6 +229,7 @@ var keywords = map[string]Kind {
 	"halt": Halt,
 	"mov": Mov,
 	"movb": Movb,
+	"movi": Movi,
 	"movze": Movze,
 	"movse": Movse,
 	"wr": Wr,

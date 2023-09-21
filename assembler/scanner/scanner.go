@@ -8,12 +8,11 @@ import (
 )
 
 type scanner struct {
-	file string
 	src []byte
-	line int
 	start int
 	cur int
 	ch byte
+	pos token.Position
 }
 
 func Scan(file string) []token.Token {
@@ -24,9 +23,8 @@ func Scan(file string) []token.Token {
 	}
 
 	s := scanner{
-		file: file,
 		src: src,
-		line: 1,
+		pos: token.Position{file, 1},
 	}
 
 	if len(src) > 0 {
@@ -69,19 +67,15 @@ func (s *scanner) makeToken(kind token.Kind) token.Token {
 	tok := token.Token{
 		Kind: kind,
 		Lex: s.lexeme(),
-		Pos: token.Position{s.file, s.line},
+		Pos: s.pos,
 	}
 
-	switch tok.Kind {
+	switch kind {
+	case token.Num:
+		v, _ := strconv.Atoi(tok.Lex)
+		tok.Value = v
 	case token.Char:
 		tok.Value = int(tok.Lex[1])
-	case token.Num:
-		val, err := strconv.Atoi(tok.Lex)
-		if err != nil {
-			// TODO(art): better error message
-			s.reportError("%s\n", err)
-		}
-		tok.Value = val
 	}
 
 	return tok
@@ -91,8 +85,8 @@ func (s *scanner) lexeme() string {
 	return string(s.src[s.start:s.cur])
 }
 
-func (s *scanner) reportError(fstr string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "%s:%d: ", s.file, s.line)
+func (s *scanner) report(fstr string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "%s: ", s.pos)
 	fmt.Fprintf(os.Stderr, fstr, args...)
 	os.Exit(1)
 }
@@ -111,7 +105,7 @@ scanAgain:
 		goto scanAgain
 	case '/':
 		if s.next('/') {
-			for s.ch != '\n' && s.hasSrc() {
+			for s.hasSrc() && s.ch != '\n' {
 				s.advance()
 			}
 			goto scanAgain
@@ -121,39 +115,39 @@ scanAgain:
 	case '\n':
 		s.advance()
 		t := s.makeToken(token.LF)
-		s.line++
+		s.pos.Line++
 		return t
 
 	case '\'':
 		s.advance()
-		for s.ch != '\'' && s.ch != '\n' && s.hasSrc() {
+		for s.hasSrc() && s.ch != '\'' && s.ch != '\n' {
 			s.advance()
 		}
 
 		if s.ch == '\n' {
-			s.reportError("unterminated character literal\n")
+			s.report("unterminated character literal\n")
 		}
 
-		ch := s.src[s.start + 1:s.cur]
+		ch := s.src[s.start+1:s.cur]
 		if len(ch) > 1 {
-			s.reportError("expected single character\n")
+			s.report("expected single character\n")
 		}
 
 		s.advance()
 		return s.makeToken(token.Char)
 	case '"':
 		s.advance()
-		for s.ch != '"' && s.ch != '\n' && s.hasSrc() {
+		for s.hasSrc() && s.ch != '"' && s.ch != '\n' {
 			s.advance()
 		}
 
 		if s.ch == '\n' {
-			s.reportError("unterminated string literal\n")
+			s.report("unterminated string literal\n")
 		}
 
-		str := s.src[s.start + 1:s.cur]
+		str := s.src[s.start+1:s.cur]
 		if len(str) == 0 {
-			s.reportError("empty string literal\n")
+			s.report("empty string literal\n")
 		}
 
 		s.advance()
@@ -187,8 +181,8 @@ scanAgain:
 		}
 	}
 scanError:
-	s.reportError("unexpected character %c\n", s.ch)
-	panic("reportError calls os.Exit(1)")
+	s.report("unexpected character %c\n", s.ch)
+	panic("report calls os.Exit(1)")
 }
 
 func isLetter(ch byte) bool {
