@@ -155,7 +155,6 @@ func main() {
 	src, _ := os.ReadFile(os.Args[1])
 	f, _ := os.Open(os.Args[1])
 	binary.Read(f, binary.LittleEndian, &ip)
-	println(ip, src)
 	for i := 2; i < len(src); i++ {
 		ram[i-2] = src[i]
 	}
@@ -312,8 +311,8 @@ func main() {
 
 		case call:
 			addr := ram.read(ip)
-			ip++
-			ram.push(addr)
+			ip += 2
+			ram.push(ip)
 			ip = addr
 		case ret:
 			ip = ram.pop()
@@ -325,7 +324,7 @@ func main() {
 				fd := r1.read()
 				ptr := r2.read()
 				len := r3.read()
-				_syscall.Write(int(fd), ram[ptr:len])
+				_syscall.Write(int(fd), ram[ptr:ptr+len])
 			default:
 				panic("syscall kind is not implemented")
 			}
@@ -333,13 +332,12 @@ func main() {
 			panic(fmt.Sprintf("unknown op %d\n", op))
 		}
 
-		fmt.Println("IP:   ", ip)
-		fmt.Printf("oscz:  %04b\n", flags)
-		fmt.Println("Regs: ", regs)
-		fmt.Println("RAM:  ", ram[:32])
-		fmt.Println("Stack:", ram[len(ram) - 32:])
-		
-		fmt.Println()
+		//fmt.Println("IP:   ", ip)
+		//fmt.Printf("oscz:  %04b\n", flags)
+		//fmt.Println("Regs: ", regs)
+		//fmt.Println("RAM:  ", ram[:80])
+		//fmt.Println("Stack:", ram[len(ram) - 32:])
+		//fmt.Println()
 	}
 }
 
