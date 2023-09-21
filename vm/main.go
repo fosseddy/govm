@@ -152,13 +152,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	src, _ := os.ReadFile(os.Args[1])
-	f, _ := os.Open(os.Args[1])
-	binary.Read(f, binary.LittleEndian, &ip)
-	for i := 2; i < len(src); i++ {
-		ram[i-2] = src[i]
-	}
-
 	halted := false
 	for !halted {
 		op := ram.readb(ip)

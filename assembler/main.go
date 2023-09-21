@@ -78,6 +78,11 @@ import (
 	"asm/token"
 )
 
+type relocation struct {
+	loc int
+	symidx int
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Provide file to assemble")
@@ -90,6 +95,7 @@ func main() {
 	st := symtab{}
 	st.populate(stmts)
 
+	var rels []relocation
 	code := new(bytes.Buffer)
 
 	for _, s := range stmts {
@@ -110,14 +116,37 @@ func main() {
 				binary.Write(code, binary.LittleEndian, v)
 			}
 		case parser.Instruction:
-			v := encodeInstruction(&s, st)
+			v, rel := encodeInstruction(&s, st)
 			binary.Write(code, binary.LittleEndian, v)
+			if rel != -1 {
+				addr := code.Len() - 2
+				rels = append(rels, relocation{addr, rel})
+			}
 		}
 	}
 
 	f, _ := os.Create("out.vm")
-	binary.Write(f, binary.LittleEndian, uint16(st["_start"].addr))
+
+	binary.Write(f, binary.LittleEndian, uint16(len(st)))
+	binary.Write(f, binary.LittleEndian, uint16(len(rels)))
+
+	binary.Write(f, binary.LittleEndian, uint16(code.Len()))
 	f.Write(code.Bytes())
+
+	for n, s := range st {
+		binary.Write(f, binary.LittleEndian, s.kind)
+		binary.Write(f, binary.LittleEndian, uint16(s.idx))
+		binary.Write(f, binary.LittleEndian, uint16(s.addr))
+		binary.Write(f, binary.LittleEndian, uint16(len(n)))
+		binary.Write(f, binary.LittleEndian, []byte(n))
+	}
+
+	for _, r := range rels {
+		binary.Write(f, binary.LittleEndian, uint16(r.loc))
+		binary.Write(f, binary.LittleEndian, uint16(r.symidx))
+	}
+
+	f.Close()
 }
 
 func encodeOp(kind token.Kind) uint8 {
@@ -248,8 +277,9 @@ func encodeBranch(br token.Kind) uint8 {
 	panic("unreachable")
 }
 
-func encodeInstruction(inst *parser.Instruction, st symtab) []byte {
+func encodeInstruction(inst *parser.Instruction, st symtab) ([]byte, int) {
 	buf := new(bytes.Buffer)
+	rel := -1
 
 	binary.Write(buf, binary.LittleEndian, encodeOp(inst.Kind))
 
@@ -261,7 +291,9 @@ func encodeInstruction(inst *parser.Instruction, st symtab) []byte {
 	case token.Movi:
 		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[1].Kind))
 		if inst.Args[0].Kind == token.Sym {
-			binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
+			sym := st[inst.Args[0].Lex]
+			rel = sym.idx
+			binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 		} else {
 			binary.Write(buf, binary.LittleEndian, uint16(inst.Args[0].Value))
 		}
@@ -269,20 +301,24 @@ func encodeInstruction(inst *parser.Instruction, st symtab) []byte {
 	case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae, token.Js,
 			token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle, token.Jg:
 		binary.Write(buf, binary.LittleEndian, encodeBranch(inst.Kind))
-		binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
+		sym := st[inst.Args[0].Lex]
+		rel = sym.idx
+		binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 
 	case token.Push, token.Pop:
 		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[0].Kind))
 
 	case token.Call:
-		binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
+		sym := st[inst.Args[0].Lex]
+		rel = sym.idx
+		binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 
 	case token.Syscall, token.Ret, token.Halt: // art: 0 args
 	default:
 		panic("unreachable " + inst.Kind.String())
 	}
 
-	return buf.Bytes()
+	return buf.Bytes(), rel
 }
 
 type symtab map[string]symbol
@@ -290,10 +326,11 @@ type symtab map[string]symbol
 type symbol struct {
 	kind symkind
 	addr int
+	idx int
 	pos token.Position
 }
 
-type symkind int
+type symkind uint8
 const (
 	symlocal symkind = iota
 	symglobal
@@ -305,25 +342,8 @@ func (st symtab) populate(stmts []parser.Stmt) {
 
 	for _, s := range stmts {
 		switch s := s.(type) {
-		case parser.Directive:
-			switch s.Kind {
-			case token.Global:
-				st[s.Arg.Lex] = symbol{symglobal, -1, s.Arg.Pos}
-			case token.Extern:
-				st[s.Arg.Lex] = symbol{symextern, -1, s.Arg.Pos}
-			case token.Byte:
-				addr++
-			case token.Word:
-				addr += 2
-			case token.Ascii:
-				addr += len(s.Arg.Lex) - 2 // art: -2 for string quotes
-			case token.Skip:
-				addr += s.Arg.Value
-			default:
-				panic("unreachable")
-			}
 		case parser.Label:
-			newsym := symbol{symlocal, addr, s.Name.Pos}
+			newsym := symbol{symlocal, addr, 0, s.Name.Pos}
 			if sym, ok := st[s.Name.Lex]; ok {
 				if sym.kind == symextern {
 					fmt.Fprintf(os.Stderr, "%s: redefinition of external symbol\n", s.Name.Pos)
@@ -336,6 +356,23 @@ func (st symtab) populate(stmts []parser.Stmt) {
 				newsym.kind = sym.kind
 			}
 			st[s.Name.Lex] = newsym
+		case parser.Directive:
+			switch s.Kind {
+			case token.Global:
+				st[s.Arg.Lex] = symbol{symglobal, -1, 0, s.Arg.Pos}
+			case token.Extern:
+				st[s.Arg.Lex] = symbol{symextern, -1, 0, s.Arg.Pos}
+			case token.Byte:
+				addr++
+			case token.Word:
+				addr += 2
+			case token.Ascii:
+				addr += len(s.Arg.Lex) - 2 // art: -2 for string quotes
+			case token.Skip:
+				addr += s.Arg.Value
+			default:
+				panic("unreachable")
+			}
 		case parser.Instruction:
 			switch s.Kind {
 			case token.Halt, token.Ret, token.Syscall:
@@ -361,10 +398,14 @@ func (st symtab) populate(stmts []parser.Stmt) {
 		}
 	}
 
+	idx := 0
 	for name, sym := range st {
 		if sym.addr == -1 && sym.kind != symextern {
 			fmt.Fprintf(os.Stderr, "%s: undefined symbol %s\n", sym.pos, name)
 			os.Exit(1)
 		}
+		sym.idx = idx
+		idx++
+		st[name] = sym
 	}
 }
