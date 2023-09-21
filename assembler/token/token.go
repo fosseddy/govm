@@ -3,7 +3,6 @@ package token
 import "fmt"
 
 type Kind int
-
 const (
 	EOF Kind = iota
 	LF

@@ -280,8 +280,10 @@ func translateInstruction(inst *parser.Instruction, st symtab) []byte {
 
 	case token.Push, token.Pop:
 		binary.Write(buf, binary.LittleEndian, getReg(inst.Args[0].Kind))
+
 	case token.Call:
 		binary.Write(buf, binary.LittleEndian, uint16(st[inst.Args[0].Lex].addr))
+
 	case token.Syscall, token.Ret, token.Halt:
 	default:
 		panic("unreachable " + inst.Kind.String())
@@ -289,7 +291,6 @@ func translateInstruction(inst *parser.Instruction, st symtab) []byte {
 
 	return buf.Bytes()
 }
-
 
 type symtab map[string]symbol
 
@@ -343,7 +344,31 @@ func (st symtab) populate(stmts []parser.Stmt) {
 			}
 			st[s.Name.Lex] = newsym
 		case parser.Instruction:
-			addr += s.Size()
+			switch s.Kind {
+			case token.Halt, token.Ret, token.Syscall:
+				addr += 1
+
+			case token.Mov:
+				sz := 4
+				if s.Args[0].Kind.IsRegister() {
+					sz = 2
+				}
+				addr += sz
+
+			case token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
+					token.Sub, token.Subb, token.Cmp, token.Cmpb, token.Push, token.Pop:
+				addr += 2
+
+			case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae,
+					token.Js, token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle,
+					token.Jg:
+				addr += 4
+
+			case token.Call:
+				addr += 3
+			default:
+				panic("unreachable")
+			}
 		default:
 			panic("unreachable")
 		}

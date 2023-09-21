@@ -29,7 +29,6 @@ func Scan(file string) []token.Token {
 		line: 1,
 	}
 
-
 	if len(src) > 0 {
 		s.ch = src[0]
 	}
@@ -187,9 +186,6 @@ scanAgain:
 			goto scanError
 		}
 	}
-
-	goto scanAgain
-
 scanError:
 	s.reportError("unexpected character %c\n", s.ch)
 	panic("reportError calls os.Exit(1)")

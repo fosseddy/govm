@@ -26,33 +26,6 @@ type Instruction struct {
 	Args []*token.Token
 }
 
-func (inst *Instruction) Size() int {
-	switch inst.Kind {
-	case token.Halt, token.Ret, token.Syscall:
-		return 1
-
-	case token.Mov:
-		s := 4
-		if inst.Args[0].Kind.IsRegister() {
-			s = 2
-		}
-		return s
-
-	case token.Movb, token.Movze, token.Movse, token.Wr, token.Wrb, token.Rd, token.Rdb, token.Add, token.Addb,
-			token.Sub, token.Subb, token.Cmp, token.Cmpb, token.Push, token.Pop:
-		return 2
-
-	case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae, token.Js,
-			token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle, token.Jg:
-		return 4
-
-	case token.Call:
-		return 3
-	}
-
-	panic("unreachable")
-}
-
 type Stmt interface{}
 
 func Parse(toks []token.Token) []Stmt {
@@ -82,7 +55,7 @@ func Parse(toks []token.Token) []Stmt {
 
 func (p *parser) advance() *token.Token {
 	if p.tok.Kind == token.EOF {
-		return nil
+		return p.tok
 	}
 
 	prev := p.tok
@@ -111,21 +84,18 @@ func (p *parser) consume(kinds ...token.Kind) *token.Token {
 }
 
 func (p *parser) consumeReg() *token.Token {
-	tok := p.advance()
-
-	if !tok.Kind.IsRegister() {
-		fmt.Fprintf(os.Stderr, "%s: expected register but got %s\n", tok.Pos, tok.Kind)
+	if !p.tok.Kind.IsRegister() {
+		fmt.Fprintf(os.Stderr, "%s: expected register but got %s\n", p.tok.Pos, p.tok.Kind)
 		os.Exit(1)
 	}
-
-	return tok
+	return p.advance()
 }
 
 func (p *parser) parseDirective() Stmt {
 	p.consume(token.Dot)
 
-	var arg *token.Token
 	dir := p.advance()
+	var arg *token.Token
 
 	switch dir.Kind {
 	case token.Extern, token.Global:
@@ -183,7 +153,8 @@ func (p *parser) parseInstruction() Stmt {
 		args = append(args, arg1)
 	case token.Halt, token.Ret, token.Syscall: // art: 0 args
 	default:
-		panic("unreachable")
+		fmt.Fprintf(os.Stderr, "%s: expected instruction but got %s\n", op.Pos, op.Kind)
+		os.Exit(1)
 	}
 
 	p.consume(token.LF)
