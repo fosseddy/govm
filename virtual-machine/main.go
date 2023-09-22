@@ -1,3 +1,10 @@
+/*
+_start_addr -  2 bytes
+
+Code
+	len  - 2 byte
+	code - len bytes
+*/
 package main
 
 import (
@@ -151,6 +158,24 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Provide file to execute")
 		os.Exit(1)
 	}
+
+	f, err := os.Open(os.Args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	binary.Read(f, binary.LittleEndian, &ip)
+	var l uint16
+	binary.Read(f, binary.LittleEndian, &l)
+	binary.Read(f, binary.LittleEndian, ram[:l])
+
+	//fmt.Println("IP:   ", ip)
+	//fmt.Printf("oscz:  %04b\n", flags)
+	//fmt.Println("Regs: ", regs)
+	//fmt.Println("RAM:  ", ram[:l])
+	//fmt.Println("Stack:", ram[len(ram) - 32:])
+	//fmt.Println()
 
 	halted := false
 	for !halted {
@@ -324,13 +349,6 @@ func main() {
 		default:
 			panic(fmt.Sprintf("unknown op %d\n", op))
 		}
-
-		//fmt.Println("IP:   ", ip)
-		//fmt.Printf("oscz:  %04b\n", flags)
-		//fmt.Println("Regs: ", regs)
-		//fmt.Println("RAM:  ", ram[:80])
-		//fmt.Println("Stack:", ram[len(ram) - 32:])
-		//fmt.Println()
 	}
 }
 
@@ -341,6 +359,8 @@ func getRegs(b byte) (register, register) {
 }
 
 func setFlags(a, b uint, size int) {
+	flags = 0
+
 	v := a + b
 	if v == 0 {
 		zflag.set()
@@ -358,6 +378,7 @@ func setFlags(a, b uint, size int) {
 	
 	as := a >> (size - 1) & 0b1
 	bs := b >> (size - 1) & 0b1
+
 	if (as == 0 && bs == 0 && sign == 1) || (as == 1 && bs == 1 && sign == 0) {
 		oflag.set()
 	}

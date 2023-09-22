@@ -43,29 +43,6 @@ letter = "a".."z"|"A".."Z"|"_"
 digit  = "0".."9"
 */
 
-/*
-Object file
-
-Header
-  nsyms - 2 bytes
-  nrels - 2 bytes
-
-Code
-  len  - 2 bytes
-  code - len bytes
-
-Symbols
-  kind   - 1 byte
-  idx    - 2 bytes
-  addr   - 2 bytes
-  nlabel - 2 bytes
-  label  - nlabel bytes
-
-Relocations
-  loc    - 2 bytes
-  symidx - 2 bytes
- */
-
 package main
 
 import (
@@ -125,12 +102,12 @@ func main() {
 		}
 	}
 
-	f, _ := os.Create("out.o")
+	f, _ := os.Create(os.Args[1] + ".o")
 
 	binary.Write(f, binary.LittleEndian, uint16(len(st)))
 	binary.Write(f, binary.LittleEndian, uint16(len(rels)))
-
 	binary.Write(f, binary.LittleEndian, uint16(code.Len()))
+
 	f.Write(code.Bytes())
 
 	for n, s := range st {
@@ -291,7 +268,11 @@ func encodeInstruction(inst *parser.Instruction, st symtab) ([]byte, int) {
 	case token.Movi:
 		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[1].Kind))
 		if inst.Args[0].Kind == token.Sym {
-			sym := st[inst.Args[0].Lex]
+			sym, ok := st[inst.Args[0].Lex]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "%s: undefined symbol %s\n", inst.Args[0].Pos, inst.Args[0].Lex)
+				os.Exit(1)
+			}
 			rel = sym.idx
 			binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 		} else {
@@ -301,7 +282,11 @@ func encodeInstruction(inst *parser.Instruction, st symtab) ([]byte, int) {
 	case token.Jmp, token.Jz, token.Je, token.Jnz, token.Jne, token.Jc, token.Jb, token.Jnc, token.Jae, token.Js,
 			token.Jns, token.Jo, token.Jno, token.Jbe, token.Ja, token.Jl, token.Jge, token.Jle, token.Jg:
 		binary.Write(buf, binary.LittleEndian, encodeBranch(inst.Kind))
-		sym := st[inst.Args[0].Lex]
+		sym, ok := st[inst.Args[0].Lex]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "%s: undefined symbol %s\n", inst.Args[0].Pos, inst.Args[0].Lex)
+			os.Exit(1)
+		}
 		rel = sym.idx
 		binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 
@@ -309,7 +294,11 @@ func encodeInstruction(inst *parser.Instruction, st symtab) ([]byte, int) {
 		binary.Write(buf, binary.LittleEndian, encodeReg(inst.Args[0].Kind))
 
 	case token.Call:
-		sym := st[inst.Args[0].Lex]
+		sym, ok := st[inst.Args[0].Lex]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "%s: undefined symbol %s\n", inst.Args[0].Pos, inst.Args[0].Lex)
+			os.Exit(1)
+		}
 		rel = sym.idx
 		binary.Write(buf, binary.LittleEndian, uint16(sym.addr))
 
@@ -403,6 +392,9 @@ func (st symtab) populate(stmts []parser.Stmt) {
 		if sym.addr == -1 && sym.kind != symextern {
 			fmt.Fprintf(os.Stderr, "%s: undefined symbol %s\n", sym.pos, name)
 			os.Exit(1)
+		}
+		if sym.kind == symextern {
+			sym.addr = 0
 		}
 		sym.idx = idx
 		idx++
