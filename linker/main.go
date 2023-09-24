@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"bytes"
+	"path/filepath"
 	"encoding/binary"
 )
 
@@ -157,7 +158,7 @@ func main() {
 		}
 	}
 
-	out, _ := os.Create("out.vm")
+	out, _ := os.Create(filepath.Dir(os.Args[1]) + "/out.vm")
 
 	_start_addr, ok := globals["_start"]
 	if !ok {
